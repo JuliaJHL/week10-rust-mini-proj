@@ -1,36 +1,59 @@
-use nlp::Pipeline;
-use nlp::models::ner::NamedEntity;
-use nlp::models::dep_parse::DepTriple;
+use sled::{Config, Db};
+use std::io::{self, Write};
+
+fn store_password(db: &Db) {
+    print!("Enter service name: ");
+    io::stdout().flush().unwrap();
+    let mut service = String::new();
+    io::stdin().read_line(&mut service).unwrap();
+
+    print!("Enter password: ");
+    io::stdout().flush().unwrap();
+    let mut password = String::new();
+    io::stdin().read_line(&mut password).unwrap();
+
+    let encrypted_password = password.trim().to_string();
+
+    match db.insert(service.trim().as_bytes(), encrypted_password.as_bytes()) {
+        Ok(_) => println!("Password stored successfully!"),
+        Err(e) => println!("Failed to store password: {}", e),
+    }
+}
+
+fn retrieve_password(db: &Db) {
+    print!("Enter service name: ");
+    io::stdout().flush().unwrap();
+    let mut service = String::new();
+    io::stdin().read_line(&mut service).unwrap();
+
+    match db.get(service.trim().as_bytes()) {
+        Ok(Some(password_bytes)) => {
+            let password = String::from_utf8_lossy(&password_bytes);
+            println!("Password for {} is: {}", service.trim(), password);
+        }
+        Ok(None) => println!("No password found for {}", service.trim()),
+        Err(e) => println!("Failed to retrieve password: {}", e),
+    }
+}
 
 fn main() {
-    // read the question from the command line
-    println!("Welcome to use the question answering system!");
-    println!("Please input your question:");
-    let mut question = String::new();
-    std::io::stdin().read_line(&mut question).unwrap();
-    let pipeline = Pipeline::default();
-    let ner = pipeline.get_named_entity_recognizer("en_core_web_sm").unwrap();
-    let dp = pipeline.get_dependency_parser("en_core_web_sm").unwrap();
-
-    // Extract named entities from the question
-    let named_entities = ner.predict(question);
-
-    // Extract the main subject of the question using dependency parsing
-    let dependencies = dp.predict(question);
-    let subject = dependencies
-        .into_iter()
-        .find(|d| d.relation == "nsubj")
-        .and_then(|d| named_entities.iter().find(|ne| ne.start == d.head_index))
-        .unwrap()
-        .text
-        .to_lowercase();
-
-    // Look up the answer in a database or knowledge base
-    let answer = match subject.as_ref() {
-        "president" => "Emmanuel Macron",
-        _ => "I don't know",
+    let db = match Config::default().path("passwords.sled").open() {
+        Ok(db) => db,
+        Err(e) => panic!("Failed to open database: {}", e),
     };
 
-    println!("Question: {}", question);
-    println!("Answer: {}", answer);
+    loop {
+        print!("Enter command (store/retrieve/quit): ");
+        io::stdout().flush().unwrap();
+
+        let mut command = String::new();
+        io::stdin().read_line(&mut command).unwrap();
+
+        match command.trim() {
+            "store" => store_password(&db),
+            "retrieve" => retrieve_password(&db),
+            "quit" => break,
+            _ => println!("Invalid command"),
+        }
+    }
 }
